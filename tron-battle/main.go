@@ -5,16 +5,18 @@ import (
 	"log"
 	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"sync"
 )
 
 var (
-	grid     = NewGrid(3)
-	playerX  = 0
-	playerY  = 0
-	gridsMu  = sync.Mutex{}
-	gridsMap = make(map[string]*Grid, 100)
+	grid           = NewGrid(3)
+	playerX        = 0
+	playerY        = 0
+	gridsMu        = sync.Mutex{}
+	gridsMap       = make(map[string]*Grid, 100)
+	playerStampReg = regexp.MustCompile(`\[(\d+):(\d+)\]`)
 )
 
 func main() {
@@ -95,6 +97,13 @@ const (
 	GridHeight = 20
 )
 
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
+//
+//	GRID
+//
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
 type Grid struct {
 	Players []*GridPlayer
 	Cells   []*Cell
@@ -113,19 +122,12 @@ func NewGrid(players int) *Grid {
 	}
 }
 
-func StringToInt(s string) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return n
-}
-
-func NewGridFromStamp(stamp string) *Grid {
+func NewGridFromStamp(stamp string, playersStamp string) *Grid {
 	cells := make([]*Cell, GridWidth*GridHeight)
 	cellIdx := 0
 	lP := PlayerName_Unknown
 	nS := ""
+	// cells
 	computeCells := func() {
 		n := StringToInt(nS)
 		for j := 0; j < n; j += 1 {
@@ -150,8 +152,15 @@ func NewGridFromStamp(stamp string) *Grid {
 		}
 	}
 	computeCells()
+	// players
+	res := playerStampReg.FindAllStringSubmatch(playersStamp, -1)
+	players := make([]*GridPlayer, len(res))
+	for i, m := range res {
+		players[i] = &GridPlayer{StringToInt(m[1]), StringToInt(m[2])}
+	}
 	return &Grid{
 		Cells: cells,
+		Players: players,
 	}
 }
 
@@ -461,8 +470,17 @@ func (g *Grid) GetCell(x, y int) *Cell {
 	return g.Cells[y*GridWidth+x]
 }
 
+func (g *Grid) GetPlayersStamp() string {
+	s := ""
+	for _, p := range g.Players {
+		s += fmt.Sprintf("[%d:%d]", p.X, p.Y)
+	}
+	return s
+}
+
 func (g *Grid) String() string {
 	s := fmt.Sprintf("stamp: %s\n", g.GetStamp())
+	s += fmt.Sprintf("players: %s\n", g.GetPlayersStamp())
 	for y := 0; y < GridHeight; y += 1 {
 		for x := 0; x < GridWidth; x += 1 {
 			s += g.GetCell(x, y).String()
@@ -477,6 +495,13 @@ func (g *Grid) String() string {
 	return s
 }
 
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
+//
+//	GRID PLAYER
+//
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
 type GridPlayer struct {
 	X, Y int
 }
@@ -488,6 +513,13 @@ func (g *GridPlayer) Clone() *GridPlayer {
 	}
 }
 
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
+//
+//	CELL
+//
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
 type Cell struct {
 	Index, X, Y int
 	Type        CellType
@@ -533,6 +565,13 @@ func (c *Cell) String() string {
 	return fmt.Sprintf("%v", c.Type)
 }
 
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
+//
+//	ENUMS
+//
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
 type PlayerName struct{ slug string }
 
 func (p PlayerName) String() string {
@@ -741,6 +780,13 @@ func NewScanner() func(a ...any) (int, error) {
 	return fmt.Scan
 }
 
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
+//
+//	UTIL
+//
+// ------------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------------
 func max(a ...float64) float64 {
 	init := false
 	max := 0.0
@@ -764,4 +810,12 @@ func SliceIncludes[T comparable](slice []T, v T) bool {
 		}
 	}
 	return false
+}
+
+func StringToInt(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return n
 }

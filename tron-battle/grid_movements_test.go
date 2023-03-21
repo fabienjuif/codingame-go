@@ -7,9 +7,7 @@ import (
 )
 
 func TestGridGoRight(t *testing.T) {
-	grid := NewGridFromStamp("A2C3.25A2C3.25A3.252B1.29B1.29B1.29B1.29B1.29B1.29B1.104")
-	// TODO: make this loadable via a stamp too
-	grid.Players = []*GridPlayer{{2, 2}, {4, 0}, {15, 10}}
+	grid := NewGridFromStamp("A2C3.25A2C3.25A3.252B1.29B1.29B1.29B1.29B1.29B1.29B1.104", "[2:2][4:0][15:10]")
 	grid2, cell := grid.GoRight(0)
 
 	assert.NotNil(t, grid2)
