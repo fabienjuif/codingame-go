@@ -39,53 +39,58 @@ func main() {
 			grid.MarkPlayer(i, X0, Y0)
 			grid.MarkPlayer(i, X1, Y1)
 		}
-
-		wg := sync.WaitGroup{}
-		var lS, rS, dS, uS float64
-		wg.Add(4)
-		go func() {
-			defer wg.Done()
-			g, cell := grid.GoLeft(P)
-			if cell != nil {
-				lS = g.GetPlayerScore(P)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			g, cell := grid.GoDown(P)
-			if cell != nil {
-				dS = g.GetPlayerScore(P)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			g, cell := grid.GoRight(P)
-			if cell != nil {
-				rS = g.GetPlayerScore(P)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			g, cell := grid.GoUp(P)
-			if cell != nil {
-				uS = g.GetPlayerScore(P)
-			}
-		}()
-		wg.Wait()
-		m := max(lS, rS, dS, uS)
 		// fmt.Fprintf(os.Stderr, "stamp: %v\n", grid.GetStamp())
 		fmt.Fprintf(os.Stderr, "%v\n", grid)
-		fmt.Fprintf(os.Stderr, "lS:%g|rS:%g|dS:%g|uS:%g>%g >", lS, rS, dS, uS, m)
-		if m == lS {
-			fmt.Println("LEFT")
-		} else if m == rS {
-			fmt.Println("RIGHT")
-		} else if m == dS {
-			fmt.Println("DOWN")
-		} else if m == uS {
-			fmt.Println("UP")
-		}
+		direction, _ := GestBestDirection(P, grid)
+		fmt.Println(direction)
 	}
+}
+
+func GestBestDirection(P int, grid *Grid) (Direction, float64) {
+	wg := sync.WaitGroup{}
+	var lS, rS, dS, uS float64
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		g, cell := grid.GoLeft(P)
+		if cell != nil {
+			lS = g.GetPlayerScore(P)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		g, cell := grid.GoDown(P)
+		if cell != nil {
+			dS = g.GetPlayerScore(P)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		g, cell := grid.GoRight(P)
+		if cell != nil {
+			rS = g.GetPlayerScore(P)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		g, cell := grid.GoUp(P)
+		if cell != nil {
+			uS = g.GetPlayerScore(P)
+		}
+	}()
+	wg.Wait()
+	m := max(lS, rS, dS, uS)
+	fmt.Fprintf(os.Stderr, "lS:%g|rS:%g|dS:%g|uS:%g>%g >", lS, rS, dS, uS, m)
+	if m == lS {
+		return Direction_Left, m
+	}
+	if m == rS {
+		return Direction_Right, m
+	}
+	if m == dS {
+		return Direction_Down, m
+	}
+	return Direction_Up, m
 }
 
 // return true if already exists
@@ -548,6 +553,35 @@ var (
 	CellType_Unknown = CellType{"UNKNOWN"}
 	CellType_Empty   = CellType{"."}
 	CellType_Full    = CellType{"F"}
+)
+
+type Direction struct{ slug string }
+
+func (d Direction) String() string {
+	return d.slug
+}
+
+func NewDirection(slug string) Direction {
+	switch slug {
+	case Direction_Left.slug:
+		return Direction_Left
+	case Direction_Right.slug:
+		return Direction_Right
+	case Direction_Down.slug:
+		return Direction_Down
+	case Direction_Up.slug:
+		return Direction_Up
+	default:
+		return Direction_Unknown
+	}
+}
+
+var (
+	Direction_Unknown = Direction{"UNKNOWN"}
+	Direction_Left    = Direction{"LEFT"}
+	Direction_Right   = Direction{"RIGHT"}
+	Direction_Down    = Direction{"DOWN"}
+	Direction_Up      = Direction{"UP"}
 )
 
 // ------------------------------------------------------------------------------------------------------
