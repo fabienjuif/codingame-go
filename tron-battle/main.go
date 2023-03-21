@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -12,8 +11,6 @@ import (
 
 var (
 	grid           = NewGrid(3)
-	playerX        = 0
-	playerY        = 0
 	gridsMu        = sync.Mutex{}
 	gridsMap       = make(map[string]*Grid, 100)
 	playerStampReg = regexp.MustCompile(`\[(\d+):(\d+)\]`)
@@ -38,10 +35,6 @@ func main() {
 			// fmt.Fprintf(os.Stderr, "putOne(a[0], %d)\nputOne(a[1], %d)\nputOne(a[2], %d)\nputOne(a[3], %d)\n", X0, Y0, X1, Y1)
 			grid.MarkPlayer(i, X0, Y0)
 			grid.MarkPlayer(i, X1, Y1)
-			if P == i {
-				playerX = X1
-				playerY = Y1
-			}
 		}
 
 		wg := sync.WaitGroup{}
@@ -49,19 +42,31 @@ func main() {
 		wg.Add(4)
 		go func() {
 			defer wg.Done()
-			lS = grid.GetScore(playerX-1, playerY)
+			g, cell := grid.GoLeft(P)
+			if cell != nil {
+				lS = g.GetPlayerScore(P)
+			}
 		}()
 		go func() {
 			defer wg.Done()
-			dS = grid.GetScore(playerX, playerY+1)
+			g, cell := grid.GoDown(P)
+			if cell != nil {
+				dS = g.GetPlayerScore(P)
+			}
 		}()
 		go func() {
 			defer wg.Done()
-			rS = grid.GetScore(playerX+1, playerY)
+			g, cell := grid.GoRight(P)
+			if cell != nil {
+				rS = g.GetPlayerScore(P)
+			}
 		}()
 		go func() {
 			defer wg.Done()
-			uS = grid.GetScore(playerX, playerY-1)
+			g, cell := grid.GoUp(P)
+			if cell != nil {
+				uS = g.GetPlayerScore(P)
+			}
 		}()
 		wg.Wait()
 		m := max(lS, rS, dS, uS)
@@ -159,7 +164,7 @@ func NewGridFromStamp(stamp string, playersStamp string) *Grid {
 		players[i] = &GridPlayer{StringToInt(m[1]), StringToInt(m[2])}
 	}
 	return &Grid{
-		Cells: cells,
+		Cells:   cells,
 		Players: players,
 	}
 }
@@ -169,177 +174,79 @@ func (g *Grid) MarkPlayer(n, x, y int) {
 	g.MarkFull(NewPlayerNameFromN(n), x, y)
 }
 
-func (g *Grid) GetScore(x, y int) float64 {
-	if !grid.IsCellVisitable(x, y) {
-		return -1
-	}
-	startingCell := g.GetCell(x, y)
-	if startingCell == nil {
-		return -1
+// GetPlayerScore - FloodFill score given the current player position
+func (g *Grid) GetPlayerScore(n int) float64 {
+	if n >= len(g.Players) || n < 0 {
+		log.Fatalf("player not found: %d", n)
 	}
 
-	scoreUp := float64(0.0)
-	scoreDown := float64(0.0)
-	scoreLeft := float64(0.0)
-	scoreRight := float64(0.0)
+	playerPos := g.Players[n]
+	playerCell := g.GetCell(playerPos.X, playerPos.Y)
+	if playerCell == nil {
+		log.Fatalf("player is a not found cell: %v", playerPos)
+	}
 
+	score := 0.0
+	indexesToVisit := []int{playerCell.Index}
+	alreadyAdded := map[int]bool{playerCell.Index: true}
+	getNextToVisit := func() (int, bool) {
+		if len(indexesToVisit) <= 0 {
+			return 0, false
+		}
+		n, indexesToVisit = indexesToVisit[0], indexesToVisit[1:]
+		return n, true
+	}
+	addToNextToVisit := func(cell *Cell) {
+		if cell != nil {
+			_, exists := alreadyAdded[cell.Index]
+			if !exists {
+				alreadyAdded[cell.Index] = true
+				indexesToVisit = append(indexesToVisit, cell.Index)
+			}
+		}
+	}
+
+	addToNextToVisit(g.GetCell(playerCell.X+1, playerCell.Y))
+	addToNextToVisit(g.GetCell(playerCell.X-1, playerCell.Y))
+	addToNextToVisit(g.GetCell(playerCell.X, playerCell.Y-1))
+	addToNextToVisit(g.GetCell(playerCell.X, playerCell.Y+1))
+
+	for {
+		cellIndex, exists := getNextToVisit()
+		if !exists {
+			break
+		}
+		cell := g.Cells[cellIndex]
+		if cell == nil {
+			log.Fatalf("Cell not found: %d", cellIndex)
+		}
+		if cell.IsVisitable() {
+			score += 1
+			addToNextToVisit(g.GetCell(cell.X+1, cell.Y))
+			addToNextToVisit(g.GetCell(cell.X-1, cell.Y))
+			addToNextToVisit(g.GetCell(cell.X, cell.Y-1))
+			addToNextToVisit(g.GetCell(cell.X, cell.Y+1))
+		}
+	}
+
+	return score
+}
+
+// GetPlayerScores - get all player score using GetPlayerScore(n)
+//
+// result is an array of each score matching player order
+func (g *Grid) GetPlayerScores() []float64 {
 	wg := sync.WaitGroup{}
-	wg.Add(4)
-	// start up
-	go func() {
-		defer wg.Done()
-		topCell := startingCell
-		if !grid.IsCellVisitable(topCell.X, topCell.Y-1) {
-			return
-		}
-		for { // top
-			c := g.GetCell(topCell.X, topCell.Y-1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			topCell = c
-		}
-		topLeftCell := topCell
-		for { // top left
-			c := g.GetCell(topLeftCell.X-1, topLeftCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			topLeftCell = c
-		}
-		topRightCell := topCell
-		for { // top right
-			c := g.GetCell(topRightCell.X+1, topRightCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			topRightCell = c
-		}
-		absR := math.Abs(float64(topCell.X - topRightCell.X))
-		absL := math.Abs(float64(topCell.X - topLeftCell.X))
-		if absR > absL {
-			scoreUp = math.Abs(float64(topCell.Y-startingCell.Y)) * absR
-		} else {
-			scoreUp = math.Abs(float64(topCell.Y-startingCell.Y)) * absL
-		}
-	}()
-	// start down
-	go func() {
-		defer wg.Done()
-		downCell := startingCell
-		if !grid.IsCellVisitable(downCell.X, downCell.Y+1) {
-			return
-		}
-		for { // down
-			c := g.GetCell(downCell.X, downCell.Y+1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			downCell = c
-		}
-		downLeftCell := downCell
-		for { // left
-			c := g.GetCell(downLeftCell.X-1, downLeftCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			downLeftCell = c
-		}
-		downRightCell := downCell
-		for { // right
-			c := g.GetCell(downRightCell.X+1, downRightCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			downRightCell = c
-		}
-		absR := math.Abs(float64(downCell.X - downRightCell.X))
-		absL := math.Abs(float64(downCell.X - downLeftCell.X))
-		if absR > absL {
-			scoreDown = math.Abs(float64(downCell.Y-startingCell.Y)) * absR
-		} else {
-			scoreDown = math.Abs(float64(downCell.Y-startingCell.Y)) * absL
-		}
-	}()
-	// start left
-	go func() {
-		defer wg.Done()
-		leftCell := startingCell
-		if !grid.IsCellVisitable(leftCell.X-1, leftCell.Y) {
-			return
-		}
-		for { // left
-			c := g.GetCell(leftCell.X-1, leftCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			leftCell = c
-		}
-		leftBottomCell := leftCell
-		for { // down
-			c := g.GetCell(leftBottomCell.X, leftBottomCell.Y+1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			leftBottomCell = c
-		}
-		leftUpCell := leftCell
-		for { // right
-			c := g.GetCell(leftUpCell.X, leftUpCell.Y-1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			leftUpCell = c
-		}
-		absU := math.Abs(float64(leftCell.Y - leftUpCell.Y))
-		absB := math.Abs(float64(leftCell.Y - leftBottomCell.Y))
-		if absU > absB {
-			scoreLeft = math.Abs(float64(leftCell.X-startingCell.X)) * absU
-		} else {
-			scoreLeft = math.Abs(float64(leftCell.X-startingCell.X)) * absB
-		}
-	}()
-	// start right
-	go func() {
-		defer wg.Done()
-		rightCell := startingCell
-		if !grid.IsCellVisitable(rightCell.X+1, rightCell.Y) {
-			return
-		}
-		for { // left
-			c := g.GetCell(rightCell.X+1, rightCell.Y)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			rightCell = c
-		}
-		rightBottomCell := rightCell
-		for { // down
-			c := g.GetCell(rightBottomCell.X, rightBottomCell.Y+1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			rightBottomCell = c
-		}
-		rightUpCell := rightCell
-		for { // right
-			c := g.GetCell(rightUpCell.X, rightUpCell.Y-1)
-			if c == nil || !c.IsVisitable() {
-				break
-			}
-			rightUpCell = c
-		}
-		absU := math.Abs(float64(rightCell.Y - rightUpCell.Y))
-		absB := math.Abs(float64(rightCell.Y - rightBottomCell.Y))
-		if absU > absB {
-			scoreRight = math.Abs(float64(rightCell.X-startingCell.X)) * absU
-		} else {
-			scoreRight = math.Abs(float64(rightCell.X-startingCell.X)) * absB
-		}
-	}()
+	scores := make([]float64, len(g.Players))
+	for n := range g.Players {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			scores[n] = g.GetPlayerScore(n)
+		}(n)
+	}
 	wg.Wait()
-
-	return math.Max(math.Max(math.Max(scoreDown, scoreRight), scoreLeft), scoreUp)
+	return scores
 }
 
 func (g *Grid) GetStamp() string {
@@ -424,8 +331,8 @@ func (g *Grid) GoUp(n int) (*Grid, *Cell) {
 	return g.Go(n, player.X, player.Y-1)
 }
 
-// GoUp - the given player index go to the right (if he can) and give a new grid
-func (g *Grid) GoBottom(n int) (*Grid, *Cell) {
+// GoDown - the given player index go to the right (if he can) and give a new grid
+func (g *Grid) GoDown(n int) (*Grid, *Cell) {
 	player := g.GetPlayer(n)
 	return g.Go(n, player.X, player.Y+1)
 }
