@@ -10,19 +10,22 @@ import (
 )
 
 var (
-	grid           = NewGrid(3)
 	gridsMu        = sync.Mutex{}
 	gridsMap       = make(map[string]*Grid, 100)
 	playerStampReg = regexp.MustCompile(`\[(\d+):(\d+)\]`)
 )
 
 func main() {
+	var grid *Grid
 	scan := NewScanner()
 	for {
 		// N: total number of players (2 to 4).
 		// P: your player number (0 to 3).
 		var N, P int
 		scan(&N, &P)
+		if grid == nil {
+			grid = NewGrid(N)
+		}
 		// fmt.Fprintf(os.Stderr, "N,P: %d %d\n", N, P)
 
 		for i := 0; i < N; i++ {
