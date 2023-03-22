@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -16,8 +17,8 @@ var (
 )
 
 func main() {
-	var grid *Grid
 	scan := NewScanner()
+	var grid *Grid
 	for {
 		// N: total number of players (2 to 4).
 		// P: your player number (0 to 3).
@@ -41,57 +42,139 @@ func main() {
 		}
 		// fmt.Fprintf(os.Stderr, "stamp: %v\n", grid.GetStamp())
 		fmt.Fprintf(os.Stderr, "%v\n", grid)
-		direction, _ := GestBestDirection(P, grid)
+		// direction, _ := GetBestDirection(P, P, grid)
+		// fmt.Println(direction)
+
+		direction, score := grid.MinMax(P, 3)
+		fmt.Fprintf(os.Stderr, "score: %v\n", score)
 		fmt.Println(direction)
 	}
 }
 
-func GestBestDirection(P int, grid *Grid) (Direction, float64) {
+type Score struct {
+	Player int
+	IsMe   bool
+	Left   float64
+	Right  float64
+	Up     float64
+	Down   float64
+}
+
+func NewScore(player int, isMe bool) *Score {
+	return &Score{
+		Player: player,
+		IsMe:   isMe,
+		Left:   -1,
+		Right:  -1,
+		Up:     -1,
+		Down:   -1,
+	}
+}
+
+func (s *Score) String() string {
+	return fmt.Sprintf("%d(%v)>l%v;r%v;u%v;d%v", s.Player, s.IsMe, s.Left, s.Right, s.Up, s.Down)
+}
+
+func (s *Score) Min() float64 {
+	return min(s.Left, s.Right, s.Up, s.Down)
+}
+
+func (s *Score) Max() float64 {
+	return max(s.Left, s.Right, s.Up, s.Down)
+}
+
+func (s *Score) BestDirection() Direction {
+	m := s.Max()
+	if m == s.Left {
+		return Direction_Left
+	}
+	if m == s.Right {
+		return Direction_Right
+	}
+	if m == s.Down {
+		return Direction_Down
+	}
+	return Direction_Up
+}
+
+func (s *Score) Populate(grid *Grid) *Score {
 	wg := sync.WaitGroup{}
-	var lS, rS, dS, uS float64
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		g, cell := grid.GoLeft(P)
+		g, cell := grid.GoLeft(s.Player)
 		if cell != nil {
-			lS = g.GetPlayerScore(P)
+			s.Left = g.GetPlayerScore(s.Player)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		g, cell := grid.GoDown(P)
+		g, cell := grid.GoDown(s.Player)
 		if cell != nil {
-			dS = g.GetPlayerScore(P)
+			s.Down = g.GetPlayerScore(s.Player)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		g, cell := grid.GoRight(P)
+		g, cell := grid.GoRight(s.Player)
 		if cell != nil {
-			rS = g.GetPlayerScore(P)
+			s.Right = g.GetPlayerScore(s.Player)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		g, cell := grid.GoUp(P)
+		g, cell := grid.GoUp(s.Player)
 		if cell != nil {
-			uS = g.GetPlayerScore(P)
+			s.Up = g.GetPlayerScore(s.Player)
 		}
 	}()
 	wg.Wait()
-	m := max(lS, rS, dS, uS)
-	fmt.Fprintf(os.Stderr, "lS:%g|rS:%g|dS:%g|uS:%g>%g >", lS, rS, dS, uS, m)
-	if m == lS {
+	return s
+}
+
+func (s *Score) Reverse() *Score {
+	s.Left *= -1
+	s.Down *= -1
+	s.Right *= -1
+	s.Up *= -1
+	return s
+}
+
+func GetBestDirection(n, P int, grid *Grid) (Direction, float64) {
+	myScore := NewScore(n, n == P).Populate(grid)
+	m := max(myScore.Left, myScore.Right, myScore.Up, myScore.Down)
+	if m == myScore.Left {
 		return Direction_Left, m
 	}
-	if m == rS {
+	if m == myScore.Right {
 		return Direction_Right, m
 	}
-	if m == dS {
+	if m == myScore.Down {
 		return Direction_Down, m
 	}
 	return Direction_Up, m
 }
+
+// func MinMax(n int, P int, grid *Grid, depth int) float64 {
+// 	if depth > 0 {
+// 		n += 1
+// 		if n >= len(grid.Players) {
+// 			n = 0
+// 		}
+
+// 		scoreLeft := MinMax(n, P, grid, depth-1)
+// 		scoreRight := MinMax(n, P, grid, depth-1)
+// 		if n == P {
+// 			return max()
+// 		}
+// 	}
+
+// 	score := NewScore(n, P == n).Populate(grid)
+// 	if score.IsMe {
+// 		return score.Max()
+// 	}
+// 	return score.Min()
+// }
 
 // return true if already exists
 func AddGrid(grid *Grid) bool {
@@ -177,8 +260,191 @@ func NewGridFromStamp(stamp string, playersStamp string) *Grid {
 	}
 }
 
+func (g *Grid) MinMax(P, depth int) (Direction, float64) {
+	left, right, up, down := 0.0, 0.0, 0.0, 0.0
+	vL, vR, vU, vD := false, false, false, false
+	wg := sync.WaitGroup{}
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		left, vL = g.MinMaxMovement(P, P, depth, func(grid *Grid) (*Grid, *Cell) { return grid.GoLeft(P) }, true)
+	}()
+	go func() {
+		defer wg.Done()
+		right, vR = g.MinMaxMovement(P, P, depth, func(grid *Grid) (*Grid, *Cell) { return grid.GoRight(P) }, true)
+	}()
+	go func() {
+		defer wg.Done()
+		up, vU = g.MinMaxMovement(P, P, depth, func(grid *Grid) (*Grid, *Cell) { return grid.GoUp(P) }, true)
+	}()
+	go func() {
+		defer wg.Done()
+		down, vD = g.MinMaxMovement(P, P, depth, func(grid *Grid) (*Grid, *Cell) { return grid.GoDown(P) }, true)
+	}()
+	wg.Wait()
+
+	scores := []float64{}
+	if vL {
+		scores = append(scores, left)
+	}
+	if vR {
+		scores = append(scores, right)
+	}
+	if vU {
+		scores = append(scores, up)
+	}
+	if vD {
+		scores = append(scores, down)
+	}
+
+	m := max(scores...)
+	fmt.Fprintln(os.Stderr, "left, right, up, down")
+	fmt.Fprintf(os.Stderr, "scores: %v:%v:%v:%v\n", left, right, up, down)
+	fmt.Fprintf(os.Stderr, "visitables: %v:%v:%v:%v\n", vL, vR, vU, vD)
+	if vL && m == left {
+		return Direction_Left, m
+	}
+	if vR && m == right {
+		return Direction_Right, m
+	}
+	if vU && m == up {
+		return Direction_Up, m
+	}
+	return Direction_Down, m
+}
+
+func (g *Grid) MinMaxMovement(n, P, depth int, move func(grid *Grid) (*Grid, *Cell), start bool) (float64, bool) {
+	if !start {
+		// make this code ... more attractive
+		n += 1
+		if n >= len(g.Players) {
+			n = 0
+		}
+		if g.Players[n].IsDead() {
+			n += 1
+			if n >= len(g.Players) {
+				n = 0
+			}
+			if g.Players[n].IsDead() {
+				n += 1
+				if n >= len(g.Players) {
+					n = 0
+				}
+			}
+		}
+	}
+	isMe := n == P
+	grid, cell := move(g)
+	// if cell == nil {
+	// 	// TODO: fix it a cell is nil if not visitable after a movement
+	// 	// fmt.Fprintf(os.Stderr, "cell nil [%v/%v/%v/%v]\n", n, P, depth, start)
+	// 	// fmt.Fprintf(os.Stderr, "%v\n", grid)
+	// 	// if isMe {
+	// 	// 	return math.Inf(-1)
+	// 	// }
+	// 	// return math.Inf(1)
+	// 	return 0
+	// }
+
+	if cell != nil && depth > 0 {
+		left, right, up, down := 0.0, 0.0, 0.0, 0.0
+		vL, vR, vU, vD := false, false, false, false
+		wg := sync.WaitGroup{}
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			left, vL = grid.MinMaxMovement(n, P, depth-1, func(grid *Grid) (*Grid, *Cell) { return grid.GoLeft(n) }, false)
+		}()
+		go func() {
+			defer wg.Done()
+			right, vR = grid.MinMaxMovement(n, P, depth-1, func(grid *Grid) (*Grid, *Cell) { return grid.GoRight(n) }, false)
+		}()
+		go func() {
+			defer wg.Done()
+			up, vU = grid.MinMaxMovement(n, P, depth-1, func(grid *Grid) (*Grid, *Cell) { return grid.GoUp(n) }, false)
+		}()
+		go func() {
+			defer wg.Done()
+			down, vD = grid.MinMaxMovement(n, P, depth-1, func(grid *Grid) (*Grid, *Cell) { return grid.GoDown(n) }, false)
+		}()
+		wg.Wait()
+		scores := []float64{}
+		if vL {
+			scores = append(scores, left)
+		}
+		if vR {
+			scores = append(scores, right)
+		}
+		if vU {
+			scores = append(scores, up)
+		}
+		if vD {
+			scores = append(scores, down)
+		}
+
+		if !vL && !vR && !vU && !vD {
+			if isMe {
+				return math.Inf(-1), cell != nil
+			} else {
+				return math.Inf(1), cell != nil
+			}
+		}
+
+		if isMe {
+			return max(scores...), cell != nil
+		}
+		return min(scores...), cell != nil
+	}
+
+	score := grid.GetPlayerScore(n)
+	if isMe {
+		return score, cell != nil
+	}
+	return score * -1, cell != nil
+}
+
+// func (g *Grid) GetLeftScore(n, x, y int) (float64, error) {
+// 	_, cell := g.GoLeft(n)
+// 	if cell == nil {
+// 		return 0, cellNotFoundError
+// 	}
+// 	return g.GetPlayerScore(n), nil
+// }
+
+// func (g *Grid) GetRightScore(n, x, y int) (float64, error) {
+// 	_, cell := g.GoRight(n)
+// 	if cell == nil {
+// 		return 0, cellNotFoundError
+// 	}
+// 	return g.GetPlayerScore(n), nil
+// }
+
+// func (g *Grid) GetUpScore(n, x, y int) (float64, error) {
+// 	_, cell := g.GoUp(n)
+// 	if cell == nil {
+// 		return 0, cellNotFoundError
+// 	}
+// 	return g.GetPlayerScore(n), nil
+// }
+
+// func (g *Grid) GetDownScore(n, x, y int) (float64, error) {
+// 	_, cell := g.GoDown(n)
+// 	if cell == nil {
+// 		return 0, cellNotFoundError
+// 	}
+// 	return g.GetPlayerScore(n), nil
+// }
+
 func (g *Grid) MarkPlayer(n, x, y int) {
 	g.Players[n] = &GridPlayer{x, y}
+	// dead player
+	if g.Players[n].IsDead() {
+		for _, c := range g.Cells {
+			if c.Player == NewPlayerNameFromN(n) {
+				c.Clean()
+			}
+		}
+	}
 	g.MarkFull(NewPlayerNameFromN(n), x, y)
 }
 
@@ -191,7 +457,7 @@ func (g *Grid) GetPlayerScore(n int) float64 {
 	playerPos := g.Players[n]
 	playerCell := g.GetCell(playerPos.X, playerPos.Y)
 	if playerCell == nil {
-		log.Fatalf("player is a not found cell: %v", playerPos)
+		log.Fatalf("player is at a not found cell: %v", playerPos)
 	}
 
 	score := 0.0
@@ -421,6 +687,10 @@ type GridPlayer struct {
 	X, Y int
 }
 
+func (g *GridPlayer) IsDead() bool {
+	return g.X == -1 || g.Y == -1
+}
+
 func (g *GridPlayer) Clone() *GridPlayer {
 	return &GridPlayer{
 		X: g.X,
@@ -449,6 +719,11 @@ func NewCell(index, x, y int) *Cell {
 		Type:   CellType_Empty,
 		Player: PlayerName_Unknown,
 	}
+}
+
+func (c *Cell) Clean() {
+	c.Type = CellType_Empty
+	c.Player = PlayerName_Unknown
 }
 
 func (c *Cell) MarkFull(player *PlayerName) *Cell {
@@ -745,6 +1020,22 @@ func max(a ...float64) float64 {
 		}
 	}
 	return max
+}
+
+func min(a ...float64) float64 {
+	init := false
+	min := 0.0
+	for _, v := range a {
+		if !init {
+			min = v
+			init = true
+		} else {
+			if v < min {
+				min = v
+			}
+		}
+	}
+	return min
 }
 
 func SliceIncludes[T comparable](slice []T, v T) bool {
