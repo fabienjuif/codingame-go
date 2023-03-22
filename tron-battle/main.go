@@ -13,7 +13,7 @@ import (
 var (
 	gridsMu        = sync.Mutex{}
 	gridsMap       = make(map[string]*Grid, 100)
-	playerStampReg = regexp.MustCompile(`\[(\d+):(\d+)\]`)
+	playerStampReg = regexp.MustCompile(`\[(-?\d+):(-?\d+)\]`)
 )
 
 func main() {
@@ -45,7 +45,14 @@ func main() {
 		// direction, _ := GetBestDirection(P, P, grid)
 		// fmt.Println(direction)
 
-		direction, score := grid.MinMax(P, 3)
+		depth := 3
+		// FIXME: not a solution the minMax seem not to work when it go back on the player
+		for _, p := range grid.Players {
+			if p.IsDead() {
+				depth -= 1
+			}
+		}
+		direction, score := grid.MinMax(P, depth)
 		fmt.Fprintf(os.Stderr, "score: %v\n", score)
 		fmt.Println(direction)
 	}
@@ -315,6 +322,7 @@ func (g *Grid) MinMax(P, depth int) (Direction, float64) {
 
 func (g *Grid) MinMaxMovement(n, P, depth int, move func(grid *Grid) (*Grid, *Cell), start bool) (float64, bool) {
 	if !start {
+		wasMe := n == P
 		// make this code ... more attractive
 		n += 1
 		if n >= len(g.Players) {
@@ -330,6 +338,9 @@ func (g *Grid) MinMaxMovement(n, P, depth int, move func(grid *Grid) (*Grid, *Ce
 				if n >= len(g.Players) {
 					n = 0
 				}
+			}
+			if wasMe && n == P {
+				n += 1
 			}
 		}
 	}
@@ -444,8 +455,9 @@ func (g *Grid) MarkPlayer(n, x, y int) {
 				c.Clean()
 			}
 		}
+	} else {
+		g.MarkFull(NewPlayerNameFromN(n), x, y)
 	}
-	g.MarkFull(NewPlayerNameFromN(n), x, y)
 }
 
 // GetPlayerScore - FloodFill score given the current player position
